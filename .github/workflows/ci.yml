@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0 # publishes no moving major tags
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -46,7 +46,7 @@ jobs:
           docker run -d --name redpanda -p 9092:9092 docker.redpanda.com/redpandadata/redpanda:v24.2.7 \
             redpanda start --mode dev-container --smp 1 \
             --kafka-addr 0.0.0.0:9092 --advertise-kafka-addr localhost:9092
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0 # publishes no moving major tags
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ matrix.python }}
@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0 # publishes no moving major tags
         with:
           version: ${{ env.UV_VERSION }}
       - run: uv build
