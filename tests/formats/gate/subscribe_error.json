@@ -1,0 +1,1 @@
+{"time":1791473067,"time_ms":1791473067330,"id":2,"conn_id":"ef9ad585566c134b","trace_id":"6ce8d15064f4a838359438d512cc02aa","channel":"futures.book_ticker","event":"subscribe","payload":["FOOXYZ_USDT"],"error":{"code":2,"message":"unknown currency pair FOOXYZ_USDT"},"result":{"status":"fail"}}

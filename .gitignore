@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# uv / virtualenv (uv.lock and .python-version ARE committed)
+.venv/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local configs and secrets. The example config ships in src/bbo_tap/; deployment
+# configs (symbol lists) live with the deployment, e.g. bbo_pipe.
+/config.yaml
+*.local.yaml
+.env
+.env.*
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store

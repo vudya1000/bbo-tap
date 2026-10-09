@@ -1,0 +1,19 @@
+redpanda:
+  brokers: [localhost:9092]
+  topic: raw.ws               # optional, default raw.ws
+  symbols_topic: ref.symbols  # optional, default ref.symbols
+
+# One raw.ws partition per venue, set here so it never moves.
+# A disabled venue keeps its partition.
+exchanges:
+  binance: {enabled: true, partition: 0}
+  bybit:   {enabled: true, partition: 1}
+  okx:     {enabled: true, partition: 2}
+  gate:    {enabled: true, partition: 3}
+  kucoin:  {enabled: true, partition: 4}
+
+# Unified symbol -> venue-native symbol, sent as-is (Binance lowercases itself).
+# Leave a venue out of a row if the coin isn't listed there.
+symbols:
+  BTC-USDT: {binance: BTCUSDT, bybit: BTCUSDT, okx: BTC-USDT-SWAP, gate: BTC_USDT, kucoin: XBTUSDTM}
+  ETH-USDT: {binance: ETHUSDT, bybit: ETHUSDT, okx: ETH-USDT-SWAP, gate: ETH_USDT, kucoin: ETHUSDTM}

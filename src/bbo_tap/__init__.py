@@ -1,0 +1,47 @@
+"""bbo-tap: best bid/ask websockets from five crypto exchanges, captured verbatim to Redpanda."""
+
+import argparse
+import asyncio
+import logging
+import sys
+from importlib.metadata import version
+from pathlib import Path
+
+from . import runner
+from .config import EXAMPLE, ConfigError, load
+from .sink import SinkError
+
+__version__ = version("bbo-tap")
+
+log = logging.getLogger("bbo_tap")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(prog="bbo-tap", description="Exchange websockets -> Redpanda raw.ws")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument("--example-config", action="store_true", help="print an example config and exit")
+    parser.add_argument("--config", default="config.yaml")
+    parser.add_argument("--log-level", default="INFO")
+    parser.add_argument("--heartbeat", type=Path, help="file touched every 10 s while records flow (for healthchecks)")
+    args = parser.parse_args()
+    if args.example_config:
+        print(EXAMPLE.read_text(), end="")
+        return
+
+    logging.basicConfig(level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.getLogger("websockets").setLevel(logging.WARNING)  # one INFO line per connect otherwise
+    # librdkafka logs every failed reconnect (~10/s while Redpanda is down);
+    # the sink's error callback already reports that state every 10 s.
+    logging.getLogger("librdkafka").setLevel(logging.CRITICAL)
+
+    try:
+        cfg = load(args.config)
+    except (ConfigError, OSError) as e:
+        log.error("config %s: %s", args.config, e)
+        sys.exit(2)
+
+    try:
+        asyncio.run(runner.run(cfg, args.heartbeat))
+    except SinkError as e:
+        log.error("redpanda: %s", e)
+        sys.exit(1)

@@ -1,0 +1,8 @@
+# Only the files the build needs (pyproject.toml declares README.md and LICENSE).
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!src/
+**/__pycache__

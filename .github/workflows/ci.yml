@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call: # the release workflow runs the same checks first
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  UV_VERSION: "0.11.32"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run mypy
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.13", "3.14"]
+    env:
+      REQUIRE_REDPANDA: "1" # the broker tests must run here, not skip
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start Redpanda
+        # Not a `services:` container: those can't take the start command and listener flags.
+        run: |
+          docker run -d --name redpanda -p 9092:9092 docker.redpanda.com/redpandadata/redpanda:v24.2.7 \
+            redpanda start --mode dev-container --smp 1 \
+            --kafka-addr 0.0.0.0:9092 --advertise-kafka-addr localhost:9092
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Wait for Redpanda
+        run: timeout 60 sh -c "until docker exec redpanda rpk cluster health | grep -q 'Healthy:.*true'; do sleep 1; done"
+      - run: uv run pytest -ra
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv build
+      - name: Install the wheel in a clean venv and run it
+        run: |
+          uv venv /tmp/smoke
+          uv pip install --python /tmp/smoke dist/*.whl
+          /tmp/smoke/bin/bbo-tap --version
+          /tmp/smoke/bin/bbo-tap --example-config > /tmp/config.yaml
+          /tmp/smoke/bin/python -c "from bbo_tap.config import load; print(load('/tmp/config.yaml').venues)"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -t bbo-tap:ci .
+      - run: docker run --rm bbo-tap:ci --version
