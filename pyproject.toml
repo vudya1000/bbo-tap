@@ -1,6 +1,6 @@
 [project]
 name = "bbo-tap"
-version = "0.1.0"
+version = "0.2.0"
 description = "Best bid/ask websockets from Binance, Bybit, OKX, Gate and KuCoin perps, captured verbatim to Redpanda/Kafka"
 readme = "README.md"
 license = "MIT"
