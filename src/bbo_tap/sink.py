@@ -8,9 +8,11 @@ or fatal client error raises SinkError so the process exits non-zero.
 import asyncio
 import json
 import logging
+import time
 
 from confluent_kafka import KafkaError, KafkaException, Message, Producer
 
+from . import metrics
 from .config import Config
 
 log = logging.getLogger(__name__)
@@ -56,6 +58,7 @@ class Sink:
                 "logger": logging.getLogger("librdkafka"),
             }
         )
+        metrics.QUEUE.set_function(lambda: len(self._producer))
 
     def check(self, timeout: float = 10.0) -> None:
         """Fail unless both topics exist and raw.ws has every configured partition."""
@@ -89,6 +92,7 @@ class Sink:
                 "payload": payload,
             }
         )
+        blocked_since = None
         while True:
             if self._error is not None:
                 raise SinkError(f"delivery failed: {self._error}")
@@ -101,8 +105,12 @@ class Sink:
                     timestamp=ts_recv_ns // 1_000_000,
                 )
                 self.sent += 1
+                metrics.RECORDS.inc()
+                if blocked_since is not None:
+                    metrics.SEND_BLOCKED.inc(time.monotonic() - blocked_since)
                 return
             except BufferError:
+                blocked_since = blocked_since or time.monotonic()
                 self._producer.poll(FULL_QUEUE_WAIT)
 
     async def run(self) -> None:

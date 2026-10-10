@@ -12,7 +12,7 @@ import signal
 from collections.abc import Callable
 from pathlib import Path
 
-from . import connection
+from . import connection, metrics
 from .config import Config
 from .exchanges import EXCHANGES, Exchange
 from .sink import Sink
@@ -56,6 +56,7 @@ async def supervise(
     while True:
         await pacer.wait()
         out = await connection.run(exchange, partition, shard, symbols, sink)
+        metrics.DISCONNECTS.labels(exchange.name, out.reason).inc()
         if out.reason == "rotate":
             failures = 0
             continue
@@ -101,6 +102,12 @@ async def run(cfg: Config, heartbeat_path: Path | None = None) -> None:
         exchange = EXCHANGES[name]()
         pacer = Pacer()
         groups = shards(venue.symbols, exchange.max_symbols_per_conn)
+        # Every series exists from the start at 0, so rate() and absence alerts work before the first event.
+        for reason in metrics.REASONS:
+            metrics.DISCONNECTS.labels(name, reason)
+        for shard in range(len(groups)):
+            metrics.FRAMES.labels(name, shard)
+            metrics.CONNECTED.labels(name, shard).set(0)
         for shard, symbols in enumerate(groups):
             tasks.append(
                 asyncio.create_task(

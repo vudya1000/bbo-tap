@@ -7,7 +7,7 @@ import sys
 from importlib.metadata import version
 from pathlib import Path
 
-from . import runner
+from . import metrics, runner
 from .config import EXAMPLE, ConfigError, load
 from .sink import SinkError
 
@@ -23,6 +23,8 @@ def main() -> None:
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--log-level", default="INFO")
     parser.add_argument("--heartbeat", type=Path, help="file touched every 10 s while records flow (for healthchecks)")
+    parser.add_argument("--metrics-port", type=int, help="serve Prometheus metrics on this port at /metrics")
+    parser.add_argument("--metrics-addr", default="0.0.0.0", help="address the metrics server binds (default 0.0.0.0)")
     args = parser.parse_args()
     if args.example_config:
         print(EXAMPLE.read_text(), end="")
@@ -39,6 +41,15 @@ def main() -> None:
     except (ConfigError, OSError) as e:
         log.error("config %s: %s", args.config, e)
         sys.exit(2)
+
+    if args.metrics_port is not None:
+        metrics.INFO.info({"version": __version__})
+        try:
+            metrics.serve(args.metrics_port, args.metrics_addr)
+        except OSError as e:
+            log.error("metrics %s:%d: %s", args.metrics_addr, args.metrics_port, e)
+            sys.exit(2)
+        log.info("metrics on http://%s:%d/metrics", args.metrics_addr, args.metrics_port)
 
     try:
         asyncio.run(runner.run(cfg, args.heartbeat))
