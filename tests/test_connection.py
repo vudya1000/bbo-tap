@@ -11,6 +11,7 @@ from typing import Any, ClassVar
 
 import pytest
 import websockets
+from prometheus_client import REGISTRY
 
 from bbo_tap import connection
 from bbo_tap.exchanges import Exchange
@@ -85,6 +86,8 @@ def fast(monkeypatch):
 async def test_rotate_streams_everything_in_order(venue, fast, fake_sink):
     fast(ROTATE_AFTER=1.5)
     ex, got = await venue("stream")
+    labels = {"exchange": "fake", "shard": "7"}
+    frames_before = REGISTRY.get_sample_value("bbo_tap_frames_total", labels) or 0.0
     out = await connection.run(ex, 3, 7, ["A", "B", "C"], fake_sink)
 
     assert out.reason == "rotate"
@@ -107,6 +110,10 @@ async def test_rotate_streams_everything_in_order(venue, fast, fake_sink):
     ts = [r[4] for r in recs]
     assert ts == sorted(ts)
     assert abs(ts[0] / 1e9 - time.time()) < 5
+
+    assert REGISTRY.get_sample_value("bbo_tap_frames_total", labels) == frames_before + len(recs)
+    assert REGISTRY.get_sample_value("bbo_tap_last_frame_timestamp_seconds", labels) == ts[-1] / 1e9
+    assert REGISTRY.get_sample_value("bbo_tap_connected", labels) == 0  # cleared on close
 
 
 async def test_idle(venue, fast, fake_sink):

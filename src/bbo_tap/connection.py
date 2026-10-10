@@ -17,6 +17,7 @@ from typing import Protocol
 import websockets
 from websockets.exceptions import ConnectionClosed
 
+from . import metrics
 from .exchanges import Exchange
 
 log = logging.getLogger(__name__)
@@ -60,6 +61,10 @@ async def run(exchange: Exchange, partition: int, shard: int, symbols: list[str]
     opened = time.monotonic()
     conn_id = f"{exchange.name}-{shard}-{time.time_ns() // 1_000_000}"
     log.info("%s open, %d symbols", conn_id, len(symbols))
+    frames = metrics.FRAMES.labels(exchange.name, shard)
+    last_frame_ts = metrics.LAST_FRAME.labels(exchange.name, shard)
+    connected = metrics.CONNECTED.labels(exchange.name, shard)
+    connected.set(1)
     last_frame = opened
     idle = False
     seq = 0
@@ -106,6 +111,8 @@ async def run(exchange: Exchange, partition: int, shard: int, symbols: list[str]
                 last_frame = time.monotonic()
                 sink.send(exchange.name, partition, conn_id, seq, ts_recv_ns, frame)
                 seq += 1
+                frames.inc()
+                last_frame_ts.set(ts_recv_ns / 1e9)
     except TimeoutError:
         reason, detail = "rotate", ""
     except ConnectionClosed as e:
@@ -115,6 +122,7 @@ async def run(exchange: Exchange, partition: int, shard: int, symbols: list[str]
         shutdown = True
         raise
     finally:
+        connected.set(0)
         for t in tasks:
             t.cancel()
         if shutdown:

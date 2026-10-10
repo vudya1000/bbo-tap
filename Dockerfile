@@ -23,6 +23,9 @@ USER app
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=2 \
     CMD ["python", "-c", "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/bbo-tap.alive') > 60)"]
 
+# Prometheus metrics at :9464/metrics.
+EXPOSE 9464
+
 # Exec form: the app is PID 1 and gets SIGTERM directly (it has no child processes).
 ENTRYPOINT ["bbo-tap"]
-CMD ["--config", "/etc/bbo-tap/config.yaml", "--heartbeat", "/tmp/bbo-tap.alive"]
+CMD ["--config", "/etc/bbo-tap/config.yaml", "--heartbeat", "/tmp/bbo-tap.alive", "--metrics-port", "9464"]
