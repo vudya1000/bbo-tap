@@ -33,7 +33,7 @@ bbo-tap --config config.yaml
 The broker needs the topics described in [Output](#output) first, e.g. with Redpanda's `rpk`:
 
 ```sh
-rpk topic create raw.ws -p 5
+rpk topic create raw.ws -p 5 -c retention.ms=604800000   # 7 days, ~8 GB/day
 rpk topic create ref.symbols -p 1 -c cleanup.policy=compact
 ```
 
@@ -80,7 +80,8 @@ Every received frame (data, acks, errors, pongs, notices) becomes one record on 
 | `payload` | The frame text, unmodified (KuCoin's binary frames decoded as UTF-8) |
 
 - **`raw.ws`**: one partition per exchange, set from config (not hashed), so each partition is one
-  venue in receive order. Recommended retention: 7 days.
+  venue in receive order. Recommended retention: 7 days, set on the topic (`retention.ms`) rather than
+  left to the cluster default; add `retention.bytes` as a cap if disk is tight.
 - **`ref.symbols`** (compacted): written on every start, one record per unified symbol, key
   `BTC-USDT`, value `{"binance":"BTCUSDT","bybit":"BTCUSDT",…}`. Join on it to map venue symbols
   to unified ones; frames themselves are never tagged.
@@ -120,6 +121,7 @@ docker run -d --name bbo-tap \
   -v ./config.yaml:/etc/bbo-tap/config.yaml:ro \
   -p 9464:9464 \
   --memory 1g --stop-timeout 20 --restart unless-stopped \
+  --log-opt max-size=10m --log-opt max-file=3 \
   ghcr.io/vudya1000/bbo-tap:latest
 ```
 
@@ -127,6 +129,8 @@ docker run -d --name bbo-tap \
   failure, 2 bad config or metrics port unavailable. Run it under something that restarts on non-zero.
 - **Health**: `--heartbeat FILE` touches the file every 10 s only while records flow; the image's
   healthcheck fails when it is older than 60 s (alive but stuck, e.g. every connection down).
+- **Logs** go to stdout. Docker's default `json-file` driver never rotates, so cap it (`--log-opt`
+  above, or in the daemon or compose config).
 - **Metrics**: see [Metrics](#metrics); the image serves them on port 9464.
 - **Resources** (measured, 25 symbols × 5 venues, ~1.8k frames/s): ~17 % of one core, ~60 MB RSS,
   ~1 TB/month inbound traffic, ~8 GB/day in the broker after compression. Allow 1 GB of memory for
