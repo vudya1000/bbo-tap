@@ -38,12 +38,18 @@ Changelog = "https://github.com/vudya1000/bbo-tap/releases"
 [project.scripts]
 bbo-tap = "bbo_tap:main"
 
+[project.optional-dependencies]
+pubsub = [
+    "google-cloud-pubsub>=2.42.0",
+]
+
 [build-system]
 requires = ["uv_build>=0.11.32,<0.13.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "google-cloud-pubsub>=2.42.0",
     "mypy>=2.4.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
@@ -58,6 +64,7 @@ testpaths = ["tests"]
 filterwarnings = ["error::RuntimeWarning"]
 markers = [
     "redpanda: needs Redpanda at localhost:9092 (skipped if unreachable)",
+    "pubsub: needs the Pub/Sub emulator at localhost:8085 (skipped if unreachable)",
     "live: connects to the real exchanges (run with --live)",
 ]
 
@@ -83,6 +90,11 @@ python_version = "3.13"
 strict = true
 warn_unreachable = true
 files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+# google-cloud-pubsub has inline annotations but no py.typed marker.
+module = ["google.cloud.*"]
+follow_untyped_imports = true
 
 [[tool.mypy.overrides]]
 # Tests: annotating every test and fixture adds noise, not safety; bodies are still checked.

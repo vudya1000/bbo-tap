@@ -1,5 +1,6 @@
 # bbo-tap ingestor. The config is mounted, never baked in:
 #   docker run -v ./config.yaml:/etc/bbo-tap/config.yaml:ro -e BBO_TAP_BROKERS=host:9092 bbo-tap
+# Both sinks are installed: Redpanda/Kafka, and Pub/Sub (the `pubsub` extra).
 
 # Build: resolve the locked dependencies into a venv.
 FROM python:3.14-slim-bookworm AS build
@@ -8,9 +9,9 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=0
 WORKDIR /app
 # Dependencies first, so editing src/ doesn't reinstall them.
 COPY pyproject.toml uv.lock README.md LICENSE ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN uv sync --frozen --no-dev --extra pubsub --no-install-project
 COPY src ./src
-RUN uv sync --frozen --no-dev --no-editable
+RUN uv sync --frozen --no-dev --extra pubsub --no-editable
 
 # Runtime: same Python, just the venv. confluent-kafka wheels bundle librdkafka.
 FROM python:3.14-slim-bookworm

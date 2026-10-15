@@ -1,4 +1,4 @@
-"""bbo-tap: best bid/ask websockets from five crypto exchanges, captured verbatim to Redpanda."""
+"""bbo-tap: best bid/ask websockets from five crypto exchanges, captured verbatim to Redpanda or Pub/Sub."""
 
 import argparse
 import asyncio
@@ -17,7 +17,7 @@ log = logging.getLogger("bbo_tap")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="bbo-tap", description="Exchange websockets -> Redpanda raw.ws")
+    parser = argparse.ArgumentParser(prog="bbo-tap", description="Exchange websockets -> Redpanda or Pub/Sub")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--example-config", action="store_true", help="print an example config and exit")
     parser.add_argument("--config", default="config.yaml")
@@ -54,5 +54,5 @@ def main() -> None:
     try:
         asyncio.run(runner.run(cfg, args.heartbeat))
     except SinkError as e:
-        log.error("redpanda: %s", e)
+        log.error("sink: %s", e)
         sys.exit(1)

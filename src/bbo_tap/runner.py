@@ -2,7 +2,7 @@
 
 Each shard has its own loop: connect, stream until the connection ends, back
 off, repeat. A sink failure or an unexpected error in any loop stops the whole
-process; SIGTERM/SIGINT closes the sockets and flushes Redpanda first.
+process; SIGTERM/SIGINT closes the sockets and flushes the sink first.
 """
 
 import asyncio
@@ -15,7 +15,7 @@ from pathlib import Path
 from . import connection, metrics
 from .config import Config
 from .exchanges import EXCHANGES, Exchange
-from .sink import Sink
+from .sink import make_sink
 
 log = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class Pacer:
 
 
 async def supervise(
-    exchange: Exchange, partition: int, shard: int, symbols: list[str], sink: connection.FrameSink, pacer: Pacer
+    exchange: Exchange, partition: int | None, shard: int, symbols: list[str], sink: connection.FrameSink, pacer: Pacer
 ) -> None:
     failures = 0
     while True:
@@ -91,7 +91,7 @@ async def heartbeat(sent: Callable[[], int], path: Path) -> None:
 
 
 async def run(cfg: Config, heartbeat_path: Path | None = None) -> None:
-    sink = Sink(cfg)
+    sink = make_sink(cfg)
     sink.check()
     sink.publish_symbols()
 
@@ -114,9 +114,8 @@ async def run(cfg: Config, heartbeat_path: Path | None = None) -> None:
                     supervise(exchange, venue.partition, shard, symbols, sink, pacer), name=f"{name}-{shard}"
                 )
             )
-        log.info(
-            "%s: %d symbols in %d connection(s), partition %d", name, len(venue.symbols), len(groups), venue.partition
-        )
+        where = f"partition {venue.partition}" if venue.partition is not None else f"ordering key {name}"
+        log.info("%s: %d symbols in %d connection(s), %s", name, len(venue.symbols), len(groups), where)
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -136,6 +135,6 @@ async def run(cfg: Config, heartbeat_path: Path | None = None) -> None:
             t.result()  # raises the failure
             raise RuntimeError(f"task {t.get_name()} ended without an error")
 
-    log.info("stopping: flushing Redpanda")
+    log.info("stopping: flushing the sink")
     sink.close()
     log.info("stopped")

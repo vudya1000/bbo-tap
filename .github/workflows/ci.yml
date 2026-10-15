@@ -38,6 +38,7 @@ jobs:
         python: ["3.13", "3.14"]
     env:
       REQUIRE_REDPANDA: "1" # the broker tests must run here, not skip
+      REQUIRE_PUBSUB: "1"
     steps:
       - uses: actions/checkout@v7
       - name: Start Redpanda
@@ -46,6 +47,10 @@ jobs:
           docker run -d --name redpanda -p 9092:9092 docker.redpanda.com/redpandadata/redpanda:v24.2.7 \
             redpanda start --mode dev-container --smp 1 \
             --kafka-addr 0.0.0.0:9092 --advertise-kafka-addr localhost:9092
+      - name: Start the Pub/Sub emulator
+        run: |
+          docker run -d --name pubsub -p 8085:8085 gcr.io/google.com/cloudsdktool/google-cloud-cli:587.0.0-emulators \
+            gcloud beta emulators pubsub start --host-port=0.0.0.0:8085 --project=bbo-tap-test
       - uses: astral-sh/setup-uv@v10.2.0 # publishes no moving major tags
         with:
           version: ${{ env.UV_VERSION }}
@@ -54,6 +59,8 @@ jobs:
       - run: uv sync --locked
       - name: Wait for Redpanda
         run: timeout 60 sh -c "until docker exec redpanda rpk cluster health | grep -q 'Healthy:.*true'; do sleep 1; done"
+      - name: Wait for the Pub/Sub emulator
+        run: timeout 120 sh -c "until curl -sf localhost:8085 >/dev/null; do sleep 1; done"
       - run: uv run pytest -ra
 
   package:

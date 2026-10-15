@@ -42,7 +42,7 @@ class Capture:
     frames: list[tuple[float, str]] = field(default_factory=list)  # (seconds since start, text)
     outcome: connection.Outcome | None = None
 
-    def send(self, exchange: str, partition: int, conn_id: str, seq: int, ts_recv_ns: int, payload: str) -> None:
+    def send(self, exchange: str, partition: int | None, conn_id: str, seq: int, ts_recv_ns: int, payload: str) -> None:
         self.frames.append((time.monotonic() - self.start, payload))
 
 

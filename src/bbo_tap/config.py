@@ -1,4 +1,4 @@
-"""Config: Redpanda settings, per-venue `enabled`/`partition`, and the symbol table.
+"""Config: the sink (`redpanda:` or `pubsub:`), per-venue settings, and the symbol table.
 
 The symbol table maps each unified symbol (`BTC-USDT`) to its venue-native
 names. Venue subscribe lists are built from it. Everything is checked at load
@@ -24,16 +24,29 @@ class ConfigError(ValueError):
 
 
 @dataclass(frozen=True)
+class Kafka:
+    brokers: tuple[str, ...]
+    topic: str
+    symbols_topic: str
+
+
+@dataclass(frozen=True)
+class PubSub:
+    project: str | None  # None: GOOGLE_CLOUD_PROJECT or the credentials' project, found at startup
+    topic: str
+    symbols_topic: str
+    endpoint: str | None  # e.g. asia-northeast1-pubsub.googleapis.com:443; None: the global endpoint
+
+
+@dataclass(frozen=True)
 class Venue:
-    partition: int
+    partition: int | None  # Kafka partition of the raw topic; None with Pub/Sub
     symbols: tuple[str, ...]  # venue-native, in symbol-table order
 
 
 @dataclass(frozen=True)
 class Config:
-    brokers: tuple[str, ...]
-    topic: str
-    symbols_topic: str
+    sink: Kafka | PubSub
     venues: dict[str, Venue]  # enabled venues only
     symbols: dict[str, dict[str, str]]  # unified -> {venue: venue-native}, as written; goes to symbols_topic
 
@@ -57,18 +70,38 @@ def load(path: str | Path) -> Config:
     with open(path) as f:
         cfg = parse(yaml.load(f, Loader=_StrictLoader) or {})
     if brokers := os.environ.get("BBO_TAP_BROKERS"):
-        cfg = dataclasses.replace(cfg, brokers=_strings(brokers.split(","), "BBO_TAP_BROKERS"))
+        if not isinstance(cfg.sink, Kafka):
+            raise ConfigError("BBO_TAP_BROKERS is set, but the config has no redpanda section")
+        sink = dataclasses.replace(cfg.sink, brokers=_strings(brokers.split(","), "BBO_TAP_BROKERS"))
+        cfg = dataclasses.replace(cfg, sink=sink)
     return cfg
 
 
 def parse(raw: Any) -> Config:
-    _expect_keys(raw, "config", required={"redpanda", "exchanges", "symbols"})
-
-    redpanda = raw["redpanda"]
-    _expect_keys(redpanda, "redpanda", required={"brokers"}, optional=frozenset({"topic", "symbols_topic"}))
-    brokers = _strings(redpanda["brokers"], "redpanda.brokers")
-    topic = _name(redpanda.get("topic", "raw.ws"), "redpanda.topic")
-    symbols_topic = _name(redpanda.get("symbols_topic", "ref.symbols"), "redpanda.symbols_topic")
+    _expect_keys(raw, "config", required={"exchanges", "symbols"}, optional=frozenset({"redpanda", "pubsub"}))
+    sink: Kafka | PubSub
+    if ("redpanda" in raw) == ("pubsub" in raw):
+        raise ConfigError("config: needs exactly one of redpanda or pubsub")
+    if "redpanda" in raw:
+        redpanda = raw["redpanda"]
+        _expect_keys(redpanda, "redpanda", required={"brokers"}, optional=frozenset({"topic", "symbols_topic"}))
+        sink = Kafka(
+            brokers=_strings(redpanda["brokers"], "redpanda.brokers"),
+            topic=_name(redpanda.get("topic", "raw.ws"), "redpanda.topic"),
+            symbols_topic=_name(redpanda.get("symbols_topic", "ref.symbols"), "redpanda.symbols_topic"),
+        )
+    else:
+        pubsub = raw["pubsub"]
+        _expect_keys(
+            pubsub, "pubsub", required=set(), optional=frozenset({"project", "topic", "symbols_topic", "endpoint"})
+        )
+        sink = PubSub(
+            project=_name(pubsub["project"], "pubsub.project") if "project" in pubsub else None,
+            topic=_name(pubsub.get("topic", "raw-ws"), "pubsub.topic"),
+            symbols_topic=_name(pubsub.get("symbols_topic", "ref-symbols"), "pubsub.symbols_topic"),
+            endpoint=_name(pubsub["endpoint"], "pubsub.endpoint") if "endpoint" in pubsub else None,
+        )
+    kafka = isinstance(sink, Kafka)
 
     exchanges = raw["exchanges"]
     if not isinstance(exchanges, dict) or not exchanges:
@@ -78,9 +111,15 @@ def parse(raw: Any) -> Config:
         raise ConfigError(f"exchanges: unknown venue(s) {sorted(unknown)}, known: {sorted(EXCHANGES)}")
     partitions: dict[int, str] = {}
     for name, venue in exchanges.items():
-        _expect_keys(venue, f"exchanges.{name}", required={"enabled", "partition"})
+        # One raw-topic partition per venue with Kafka; Pub/Sub orders by an ordering key instead.
+        if kafka:
+            _expect_keys(venue, f"exchanges.{name}", required={"enabled", "partition"})
+        else:
+            _expect_keys(venue, f"exchanges.{name}", required={"enabled"})
         if not isinstance(venue["enabled"], bool):
             raise ConfigError(f"exchanges.{name}.enabled: must be true or false")
+        if not kafka:
+            continue
         p = venue["partition"]
         if not isinstance(p, int) or isinstance(p, bool) or p < 0:
             raise ConfigError(f"exchanges.{name}.partition: must be an integer >= 0")
@@ -115,11 +154,11 @@ def parse(raw: Any) -> Config:
         venue_symbols = tuple(row[name] for row in symbols.values() if name in row)
         if not venue_symbols:
             raise ConfigError(f"exchanges.{name}: enabled but no symbol in the table maps to it")
-        venues[name] = Venue(partition=venue["partition"], symbols=venue_symbols)
+        venues[name] = Venue(partition=venue.get("partition"), symbols=venue_symbols)
     if not venues:
         raise ConfigError("exchanges: no venue is enabled")
 
-    return Config(brokers=brokers, topic=topic, symbols_topic=symbols_topic, venues=venues, symbols=symbols)
+    return Config(sink=sink, venues=venues, symbols=symbols)
 
 
 def _expect_keys(value: Any, where: str, required: set[str], optional: frozenset[str] = frozenset()) -> None:

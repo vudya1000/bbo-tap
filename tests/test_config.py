@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from bbo_tap.config import EXAMPLE, ConfigError, load, parse
+from bbo_tap.config import EXAMPLE, ConfigError, Kafka, PubSub, load, parse
 
 GOOD: dict[str, Any] = {
     "redpanda": {"brokers": ["b:9092"]},
@@ -18,10 +18,9 @@ GOOD: dict[str, Any] = {
 def test_example_config_loads():
     cfg = load(EXAMPLE)
     assert set(cfg.venues) == {"binance", "bybit", "okx", "gate", "kucoin"}
-    assert sorted(v.partition for v in cfg.venues.values()) == [0, 1, 2, 3, 4]
+    assert sorted(v.partition or 0 for v in cfg.venues.values()) == [0, 1, 2, 3, 4]
     assert cfg.venues["kucoin"].symbols == ("XBTUSDTM", "ETHUSDTM")
-    assert cfg.topic == "raw.ws"
-    assert cfg.symbols_topic == "ref.symbols"
+    assert cfg.sink == Kafka(brokers=("localhost:9092",), topic="raw.ws", symbols_topic="ref.symbols")
 
 
 def test_venue_symbols_come_from_table_and_skip_disabled():
@@ -99,10 +98,63 @@ def test_duplicate_yaml_key_rejected(tmp_path):
 
 def test_brokers_env_override(monkeypatch):
     monkeypatch.setenv("BBO_TAP_BROKERS", "redpanda:29092,other:29092")
-    assert load(EXAMPLE).brokers == ("redpanda:29092", "other:29092")
+    sink = load(EXAMPLE).sink
+    assert isinstance(sink, Kafka)
+    assert sink.brokers == ("redpanda:29092", "other:29092")
 
 
 def test_brokers_env_override_rejects_garbage(monkeypatch):
     monkeypatch.setenv("BBO_TAP_BROKERS", "a,,b")
     with pytest.raises(ConfigError, match="BBO_TAP_BROKERS"):
         load(EXAMPLE)
+
+
+PUBSUB: dict[str, Any] = {
+    "pubsub": {},
+    "exchanges": {"okx": {"enabled": True}, "gate": {"enabled": False}},
+    "symbols": GOOD["symbols"],
+}
+
+
+def test_pubsub_defaults():
+    cfg = parse(PUBSUB)
+    assert cfg.sink == PubSub(project=None, topic="raw-ws", symbols_topic="ref-symbols", endpoint=None)
+    assert cfg.venues["okx"].partition is None
+
+
+def test_pubsub_all_settings():
+    raw = copy.deepcopy(PUBSUB)
+    raw["pubsub"] = {
+        "project": "p",
+        "topic": "t",
+        "symbols_topic": "s",
+        "endpoint": "asia-northeast1-pubsub.googleapis.com:443",
+    }
+    assert parse(raw).sink == PubSub("p", "t", "s", "asia-northeast1-pubsub.googleapis.com:443")
+
+
+@pytest.mark.parametrize(
+    ("edit", "message"),
+    [
+        (_set(["redpanda"], {"brokers": ["b"]}), "exactly one of redpanda or pubsub"),
+        (_set(["pubsub"], _DELETE), "exactly one of redpanda or pubsub"),
+        (_set(["pubsub", "project"], ""), "non-empty string"),
+        (_set(["pubsub", "subscription"], "x"), "unknown key(s) ['subscription']"),
+        (_set(["exchanges", "okx", "partition"], 0), "unknown key(s) ['partition']"),
+    ],
+)
+def test_pubsub_rejected(edit, message):
+    raw = copy.deepcopy(PUBSUB)
+    edit(raw)
+    with pytest.raises(
+        ConfigError, match=message.replace("[", r"\[").replace("]", r"\]").replace("(", r"\(").replace(")", r"\)")
+    ):
+        parse(raw)
+
+
+def test_brokers_env_override_needs_redpanda(monkeypatch, tmp_path):
+    path = tmp_path / "c.yaml"
+    path.write_text("pubsub: {}\nexchanges:\n  okx: {enabled: true}\nsymbols:\n  BTC-USDT: {okx: A}\n")
+    monkeypatch.setenv("BBO_TAP_BROKERS", "redpanda:29092")
+    with pytest.raises(ConfigError, match="no redpanda section"):
+        load(path)

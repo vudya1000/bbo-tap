@@ -14,7 +14,8 @@ from confluent_kafka import Consumer, Message, TopicPartition
 from bbo_tap import runner
 from bbo_tap.config import parse
 from bbo_tap.exchanges import Exchange
-from bbo_tap.sink import Sink, SinkError
+from bbo_tap.sink import SinkError
+from bbo_tap.sink.kafka import KafkaSink
 
 pytestmark = pytest.mark.redpanda
 
@@ -55,14 +56,18 @@ def read_all(brokers, topic, partitions):
     return out
 
 
+def _sink(cfg):
+    return KafkaSink(cfg, cfg.sink)
+
+
 def test_check_passes_on_good_topics(redpanda, topics):
-    Sink(make_cfg(redpanda, *topics)).check()
+    _sink(make_cfg(redpanda, *topics)).check()
 
 
 def test_check_missing_topic(redpanda, topics):
     cfg = make_cfg(redpanda, "test.missing." + uuid.uuid4().hex[:6], topics[1])
     with pytest.raises(SinkError, match="missing"):
-        Sink(cfg).check()
+        _sink(cfg).check()
 
 
 def test_check_too_few_partitions(redpanda, topics):
@@ -70,19 +75,19 @@ def test_check_too_few_partitions(redpanda, topics):
     venues = dict(cfg.venues)
     venues["kucoin"] = dataclasses.replace(venues["kucoin"], partition=7)
     with pytest.raises(SinkError, match="has 5 partitions, config needs 8"):
-        Sink(dataclasses.replace(cfg, venues=venues)).check()
+        _sink(dataclasses.replace(cfg, venues=venues)).check()
 
 
 def test_check_unreachable():
     cfg = make_cfg("localhost:1", "raw", "ref")
     with pytest.raises(SinkError, match="unreachable"):
-        Sink(cfg).check(timeout=2)
+        _sink(cfg).check(timeout=2)
 
 
 def test_round_trip(redpanda, topics):
     raw, ref = topics
     cfg = make_cfg(redpanda, raw, ref)
-    sink = Sink(cfg)
+    sink = _sink(cfg)
     sink.publish_symbols()
     sent = {}
     for i in range(5000):

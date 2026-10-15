@@ -32,9 +32,11 @@ STATS_INTERVAL = 60.0  # log frames/s per connection this often
 
 
 class FrameSink(Protocol):
-    """Where received frames go (the Redpanda Sink in production)."""
+    """Where received frames go (a sink.Sink in production)."""
 
-    def send(self, exchange: str, partition: int, conn_id: str, seq: int, ts_recv_ns: int, payload: str) -> None: ...
+    def send(
+        self, exchange: str, partition: int | None, conn_id: str, seq: int, ts_recv_ns: int, payload: str
+    ) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -44,7 +46,7 @@ class Outcome:
     connected_for: float  # seconds the socket was open; 0 if it never opened
 
 
-async def run(exchange: Exchange, partition: int, shard: int, symbols: list[str], sink: FrameSink) -> Outcome:
+async def run(exchange: Exchange, partition: int | None, shard: int, symbols: list[str], sink: FrameSink) -> Outcome:
     subscribes = exchange.subscribe_messages(symbols)  # built before connecting, so a bug fails loudly
     try:
         ws = await websockets.connect(
