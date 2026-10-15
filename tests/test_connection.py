@@ -160,7 +160,9 @@ async def test_sink_error_propagates(venue, fast):
         pass
 
     class FailingSink:
-        def send(self, exchange: str, partition: int, conn_id: str, seq: int, ts_recv_ns: int, payload: str) -> None:
+        def send(
+            self, exchange: str, partition: int | None, conn_id: str, seq: int, ts_recv_ns: int, payload: str
+        ) -> None:
             raise BoomError
 
     with pytest.raises(BoomError):

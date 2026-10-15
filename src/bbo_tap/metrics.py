@@ -18,9 +18,9 @@ DISCONNECTS = Counter(
     "Connection attempts that ended, by reason (rotate, idle, closed, connect_failed)",
     ["exchange", "reason"],
 )
-RECORDS = Counter("bbo_tap_records_produced", "Records handed to the Kafka producer")
-QUEUE = Gauge("bbo_tap_producer_queue_messages", "Records and requests waiting in the producer's local queue")
-SEND_BLOCKED = Counter("bbo_tap_send_blocked_seconds", "Time reading was paused because the producer queue was full")
+RECORDS = Counter("bbo_tap_records_produced", "Records handed to the sink client (Kafka producer or Pub/Sub publisher)")
+QUEUE = Gauge("bbo_tap_producer_queue_messages", "Records waiting in the sink client's local queue")
+SEND_BLOCKED = Counter("bbo_tap_send_blocked_seconds", "Time reading was paused because the local queue was full")
 
 REASONS = ("rotate", "idle", "closed", "connect_failed")
 

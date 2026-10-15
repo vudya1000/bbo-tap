@@ -6,22 +6,23 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/vudya1000/bbo-tap/blob/main/LICENSE)
 
 Best bid/ask websockets from **Binance, Bybit, OKX, Gate and KuCoin** USDT perpetuals, captured
-**verbatim** to a Kafka-API topic (Redpanda, Kafka). One small asyncio process; no parsing, no
+**verbatim** to a Kafka-API topic (Redpanda, Kafka) or a Google Cloud Pub/Sub topic. One small asyncio process; no parsing, no
 normalization: every received frame is one record, so whatever you build downstream (SQL,
 stream processing) works on exactly what the exchanges sent.
 
 - Explicit symbol table: one unified name (`BTC-USDT`) mapped to each venue's own symbol
-- One topic partition per exchange, each in receive order
+- One topic partition per exchange (Pub/Sub: one ordering key per exchange), each in receive order
 - Reconnects with backoff, proactive 12 h reconnect, idle detection, fast clean shutdown
 - Fails loudly: exits non-zero when the broker is unreachable, never drops frames silently
 
 ## Install
 
 ```sh
-pip install bbo-tap        # or: uv tool install bbo-tap / uvx bbo-tap
+pip install bbo-tap            # or: uv tool install bbo-tap / uvx bbo-tap
+pip install 'bbo-tap[pubsub]'  # with the Pub/Sub sink
 ```
 
-Or the container: `docker pull ghcr.io/vudya1000/bbo-tap`.
+Or the container, which includes both sinks: `docker pull ghcr.io/vudya1000/bbo-tap`.
 
 ## Quick start
 
@@ -62,6 +63,37 @@ venue symbol used twice, an enabled venue with no symbols, or duplicate YAML key
 
 `BBO_TAP_BROKERS` (comma-separated) overrides `redpanda.brokers`, so one symbol list serves every
 environment.
+
+### Pub/Sub instead of Redpanda
+
+Replace the `redpanda:` section with `pubsub:` and drop `partition` from the exchanges:
+
+```yaml
+pubsub:                       # every key is optional
+  project: my-project         # default: GOOGLE_CLOUD_PROJECT, else the credentials' project (on GKE: the cluster's)
+  topic: raw-ws               # default raw-ws
+  symbols_topic: ref-symbols  # default ref-symbols
+  endpoint: asia-northeast1-pubsub.googleapis.com:443   # default: the global endpoint
+exchanges:
+  binance: {enabled: true}
+  okx:     {enabled: true}
+symbols:
+  ETH-USDT: {binance: ETHUSDT, okx: ETH-USDT-SWAP}
+```
+
+- **Messages**: `raw-ws` gets the same JSON record as `raw.ws` (see [Output](#output)), with
+  **ordering key = exchange**: a subscription with message ordering enabled receives each venue's
+  frames in receive order, like one Kafka partition per venue. `ref-symbols` gets one message per
+  unified symbol: data `{"binance":"ETHUSDT",…}`, attribute `symbol` = `ETH-USDT`.
+- **Credentials**: Application Default Credentials (Workload Identity on GKE,
+  `gcloud auth application-default login` locally). `PUBSUB_EMULATOR_HOST` points it at the emulator.
+- **Permissions** on both topics: `roles/pubsub.publisher`, and `roles/pubsub.viewer` for the
+  startup check that they exist.
+- **Ordering across regions**: Pub/Sub keeps order only among messages published to the same region.
+  Set `endpoint` to a regional endpoint so every publish goes to one region.
+- **Same delivery rules** as Redpanda: at least once; up to 100k messages / 128 MB queue locally,
+  then reading pauses; a publish failing for 30 s (or failing outright, e.g. topic deleted) exits
+  with code 1. Batches: up to 1000 messages or 1 MB, 50 ms.
 
 ## Output
 
@@ -148,8 +180,8 @@ never `conn_id` or symbol.
 | `bbo_tap_last_frame_timestamp_seconds{exchange,shard}` | gauge | Wall clock of the last frame |
 | `bbo_tap_connected{exchange,shard}` | gauge | 1 while the websocket is open |
 | `bbo_tap_disconnects_total{exchange,reason}` | counter | Connections ended: `rotate`, `idle`, `closed`, `connect_failed` |
-| `bbo_tap_records_produced_total` | counter | Records handed to the producer |
-| `bbo_tap_producer_queue_messages` | gauge | Producer local queue depth (grows while the broker is unreachable) |
+| `bbo_tap_records_produced_total` | counter | Records handed to the producer (Kafka) or publisher (Pub/Sub) |
+| `bbo_tap_producer_queue_messages` | gauge | Local queue depth (grows while the broker or Pub/Sub is unreachable) |
 | `bbo_tap_send_blocked_seconds_total` | counter | Time reading was paused on a full queue |
 | `bbo_tap_info{version}` | info | Running version |
 
@@ -173,9 +205,17 @@ Example alerts:
 ```sh
 uv sync
 uv run ruff format . && uv run ruff check . && uv run mypy
-uv run pytest                     # offline, plus broker tests if Redpanda is on localhost:9092 (else skipped)
+uv run pytest                     # offline, plus broker tests if Redpanda is on localhost:9092
+                                  # and the Pub/Sub emulator on localhost:8085 (else skipped)
 uv run pytest --live -s           # 30 s against the real exchanges
 uv run pytest --live --live-config config.yaml --live-duration 120   # your symbol list; quiet coins need longer
+```
+
+The Pub/Sub emulator:
+
+```sh
+docker run -d --name pubsub -p 8085:8085 gcr.io/google.com/cloudsdktool/google-cloud-cli:587.0.0-emulators \
+  gcloud beta emulators pubsub start --host-port=0.0.0.0:8085 --project=bbo-tap-test
 ```
 
 The live check verifies, per venue: acks, at least one data frame per symbol, pongs, no error
