@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.2.0 # publishes no moving major tags
+      - uses: astral-sh/setup-uv@v10.3.0 # publishes no moving major tags
         with:
           version: ${{ env.UV_VERSION }}
       - name: Tag must match pyproject version
