@@ -3,7 +3,7 @@
 # Both sinks are installed: Redpanda/Kafka, and Pub/Sub (the `pubsub` extra).
 
 # Build: resolve the locked dependencies into a venv.
-FROM python:3.14-slim-bookworm AS build
+FROM python:3.15-slim-bookworm AS build
 COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=0
 WORKDIR /app
@@ -14,7 +14,7 @@ COPY src ./src
 RUN uv sync --frozen --no-dev --extra pubsub --no-editable
 
 # Runtime: same Python, just the venv. confluent-kafka wheels bundle librdkafka.
-FROM python:3.14-slim-bookworm
+FROM python:3.15-slim-bookworm
 RUN useradd --system --uid 10001 --no-create-home app
 COPY --from=build /app/.venv /app/.venv
 ENV PATH=/app/.venv/bin:$PATH PYTHONUNBUFFERED=1
