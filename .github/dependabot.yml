@@ -15,3 +15,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # confluent-kafka and pyyaml have no cp315 wheels yet; the slim image
+      # can't build them from source. Drop this once they ship.
+      - dependency-name: python
+        versions: [">= 3.15"]
